@@ -7,17 +7,31 @@
   <link rel="manifest" href="manifest.json">
   <style>
     body { font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; background: #f4f4f9; }
-    .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
     h2 { text-align: center; color: #333; margin-top: 0; }
     label { display: block; margin-top: 15px; font-weight: bold; color: #555; font-size: 14px; }
     input, textarea { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
     button { margin-top: 20px; width: 100%; padding: 12px; background: #4CAF50; color: white; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; font-weight: bold; }
     button:disabled { background: #aaa; }
+    .btn-secondary { background: #2196F3; margin-top: 10px; }
     #preview { max-width: 100%; margin-top: 10px; border-radius: 5px; display: none; }
+    
+    /* 歷史紀錄樣式 */
+    .record-item { border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px; }
+    .record-item:last-child { border-bottom: none; }
+    .record-date { font-size: 12px; color: #888; }
+    .record-title { font-weight: bold; font-size: 16px; margin: 5px 0; }
+    .record-note { font-size: 14px; color: #555; margin-bottom: 10px; }
+    .record-img { max-width: 100%; border-radius: 5px; margin-top: 5px; }
+    .record-link { display: inline-block; padding: 5px 10px; background: #eee; text-decoration: none; color: #333; border-radius: 3px; font-size: 12px; }
+    
+    /* 隱藏/顯示控制 */
+    .hidden { display: none; }
   </style>
 </head>
 <body>
-  <div class="card">
+  
+  <div id="addSection" class="card">
     <h2>💡 靈感收集冊</h2>
     <form id="ideaForm">
       <label>🔗 網址</label>
@@ -34,12 +48,34 @@
       <textarea id="note" rows="3" placeholder="有什麼想法嗎？"></textarea>
       
       <button type="submit" id="submitBtn">儲存至資料庫</button>
+      <button type="button" class="btn-secondary" id="viewRecordsBtn">查看歷史紀錄</button>
     </form>
+  </div>
+
+  <div id="listSection" class="card hidden">
+    <h2>📚 歷史紀錄</h2>
+    <button type="button" class="btn-secondary" id="backToAddBtn" style="margin-bottom: 15px;">返回新增</button>
+    <div id="recordsContainer">載入中...</div>
   </div>
 
   <script>
     const API_URL = "https://script.google.com/macros/s/AKfycbwAMEZb46WAHh_zfFBL3-cZanmCpD5NCSwKi7Otm9X5eWsmakWXrVbo9nHKwF8Jrv3yqA/exec";
     let base64Image = "";
+
+    // 處理介面切換
+    const addSection = document.getElementById('addSection');
+    const listSection = document.getElementById('listSection');
+    
+    document.getElementById('viewRecordsBtn').addEventListener('click', () => {
+      addSection.classList.add('hidden');
+      listSection.classList.remove('hidden');
+      loadRecords(); // 載入資料
+    });
+
+    document.getElementById('backToAddBtn').addEventListener('click', () => {
+      listSection.classList.add('hidden');
+      addSection.classList.remove('hidden');
+    });
 
     // 解析 Android 分享選單傳進來的資料
     window.addEventListener('DOMContentLoaded', () => {
@@ -50,7 +86,6 @@
 
       if (sharedTitle) document.getElementById('title').value = sharedTitle;
       
-      // FB/IG/Threads 分享時，網址有時會混在 text 裡面
       let finalUrl = sharedUrl || "";
       if (!finalUrl && sharedText) {
         const urlRegex = /(https?:\/\/[^\s]+)/g;
@@ -64,7 +99,7 @@
       if (finalUrl) document.getElementById('url').value = finalUrl;
     });
 
-    // 處理照片上傳並壓縮 (避免檔案太大塞爆試算表)
+    // 處理照片上傳並壓縮
     document.getElementById('imageFile').addEventListener('change', function(e) {
       const file = e.target.files[0];
       if (!file) return;
@@ -74,14 +109,14 @@
         const img = new Image();
         img.onload = function() {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 300; // 強制壓縮寬度
+          const MAX_WIDTH = 300; 
           const scaleSize = MAX_WIDTH / img.width;
           canvas.width = MAX_WIDTH;
           canvas.height = img.height * scaleSize;
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           
-          base64Image = canvas.toDataURL('image/jpeg', 0.6); // 轉為文字編碼
+          base64Image = canvas.toDataURL('image/jpeg', 0.6); 
           const preview = document.getElementById('preview');
           preview.src = base64Image;
           preview.style.display = 'block';
@@ -106,7 +141,6 @@
       };
 
       try {
-        // 使用 no-cors 模式避免跨網域阻擋
         await fetch(API_URL, {
           method: 'POST',
           mode: 'no-cors',
@@ -114,7 +148,6 @@
           body: JSON.stringify(data)
         });
         alert('🎉 儲存成功！');
-        // 清空網址列參數與表單
         window.history.replaceState({}, document.title, window.location.pathname);
         document.getElementById('ideaForm').reset();
         document.getElementById('preview').style.display = 'none';
@@ -127,7 +160,46 @@
       }
     });
 
-    // 註冊 Service Worker (讓網頁可安裝的必要條件)
+    // 讀取歷史紀錄
+    async function loadRecords() {
+      const container = document.getElementById('recordsContainer');
+      container.innerHTML = "載入中...";
+      
+      try {
+        const response = await fetch(API_URL);
+        const data = await response.json();
+        
+        if (data.length === 0) {
+          container.innerHTML = "目前還沒有紀錄喔！";
+          return;
+        }
+
+        let html = "";
+        data.forEach(item => {
+          // 格式化日期 (去除太冗長的部分，視情況調整)
+          let dateStr = item.date;
+          if (item.date && item.date.length > 19) {
+             dateStr = item.date.substring(0, 19).replace('T', ' ');
+          }
+
+          html += `
+            <div class="record-item">
+              <div class="record-date">${dateStr || ''}</div>
+              <div class="record-title">${item.title || '無標題'}</div>
+              <div class="record-note">${item.note || ''}</div>
+              ${item.image ? `<img src="${item.image}" class="record-img">` : ''}
+              ${item.url ? `<br><a href="${item.url}" target="_blank" class="record-link">🔗 前往連結</a>` : ''}
+            </div>
+          `;
+        });
+        container.innerHTML = html;
+
+      } catch (error) {
+        container.innerHTML = "讀取失敗，請檢查網路連線。";
+        console.error(error);
+      }
+    }
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js');
     }
