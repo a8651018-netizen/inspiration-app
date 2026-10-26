@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>靈感收集冊</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    body { font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; background: #f4f4f9; }
+    .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    h2 { text-align: center; color: #333; margin-top: 0; }
+    label { display: block; margin-top: 15px; font-weight: bold; color: #555; font-size: 14px; }
+    input, textarea { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+    button { margin-top: 20px; width: 100%; padding: 12px; background: #4CAF50; color: white; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; font-weight: bold; }
+    button:disabled { background: #aaa; }
+    #preview { max-width: 100%; margin-top: 10px; border-radius: 5px; display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>💡 靈感收集冊</h2>
+    <form id="ideaForm">
+      <label>🔗 網址</label>
+      <input type="text" id="url" placeholder="貼上或從分享帶入網址...">
+      
+      <label>📌 標題</label>
+      <input type="text" id="title" placeholder="輸入標題...">
+      
+      <label>🖼️ 封面照片 (選填)</label>
+      <input type="file" id="imageFile" accept="image/*">
+      <img id="preview" alt="照片預覽">
+      
+      <label>📝 附註</label>
+      <textarea id="note" rows="3" placeholder="有什麼想法嗎？"></textarea>
+      
+      <button type="submit" id="submitBtn">儲存至資料庫</button>
+    </form>
+  </div>
+
+  <script>
+    const API_URL = "https://script.google.com/macros/s/AKfycbwAMEZb46WAHh_zfFBL3-cZanmCpD5NCSwKi7Otm9X5eWsmakWXrVbo9nHKwF8Jrv3yqA/exec";
+    let base64Image = "";
+
+    // 解析 Android 分享選單傳進來的資料
+    window.addEventListener('DOMContentLoaded', () => {
+      const params = new URLSearchParams(window.location.search);
+      const sharedTitle = params.get('title');
+      const sharedText = params.get('text');
+      const sharedUrl = params.get('url');
+
+      if (sharedTitle) document.getElementById('title').value = sharedTitle;
+      
+      // FB/IG/Threads 分享時，網址有時會混在 text 裡面
+      let finalUrl = sharedUrl || "";
+      if (!finalUrl && sharedText) {
+        const urlRegex = /(https?:\/\/[^\s]+)/g;
+        const matches = sharedText.match(urlRegex);
+        if (matches) {
+          finalUrl = matches[0];
+        } else {
+          document.getElementById('note').value = sharedText;
+        }
+      }
+      if (finalUrl) document.getElementById('url').value = finalUrl;
+    });
+
+    // 處理照片上傳並壓縮 (避免檔案太大塞爆試算表)
+    document.getElementById('imageFile').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 300; // 強制壓縮寬度
+          const scaleSize = MAX_WIDTH / img.width;
+          canvas.width = MAX_WIDTH;
+          canvas.height = img.height * scaleSize;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          
+          base64Image = canvas.toDataURL('image/jpeg', 0.6); // 轉為文字編碼
+          const preview = document.getElementById('preview');
+          preview.src = base64Image;
+          preview.style.display = 'block';
+        }
+        img.src = event.target.result;
+      }
+      reader.readAsDataURL(file);
+    });
+
+    // 送出表單到 Google Sheets
+    document.getElementById('ideaForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('submitBtn');
+      btn.innerText = "儲存中...";
+      btn.disabled = true;
+
+      const data = {
+        url: document.getElementById('url').value,
+        title: document.getElementById('title').value,
+        image: base64Image,
+        note: document.getElementById('note').value
+      };
+
+      try {
+        // 使用 no-cors 模式避免跨網域阻擋
+        await fetch(API_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        alert('🎉 儲存成功！');
+        // 清空網址列參數與表單
+        window.history.replaceState({}, document.title, window.location.pathname);
+        document.getElementById('ideaForm').reset();
+        document.getElementById('preview').style.display = 'none';
+        base64Image = "";
+      } catch (error) {
+        alert('發生錯誤，請稍後再試！');
+      } finally {
+        btn.innerText = "儲存至資料庫";
+        btn.disabled = false;
+      }
+    });
+
+    // 註冊 Service Worker (讓網頁可安裝的必要條件)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js');
+    }
+  </script>
+</body>
+</html>
